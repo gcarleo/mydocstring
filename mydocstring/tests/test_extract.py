@@ -29,3 +29,30 @@ def test_extract():
 
     with pytest.raises(NameError) : extract.extract(example, 'something')
     with pytest.raises(ValueError) : extract.extract(example, 'something.a.a')
+
+def test_pybind():
+    docstring = \
+    """
+    add(arg0: int, arg1: int) -> int
+    
+    
+           Add two numbers
+    
+           Some other explanation about the add function.
+    """
+    pybind = extract.PyBindExtract(docstring)
+    match = pybind.extract('add')
+    assert match['function'] == 'add'
+    assert match['return_type'] == 'int'
+    assert match['signature'] == '(arg0: int, arg1: int)'
+    assert 'Add two numbers' in match['docstring'] 
+    assert 'Some other' in match['docstring']
+
+def test_pybind_parse_args():
+
+    pybind = extract.PyBindExtract('')
+    signature = '(arg0: int, arg1: int)'
+    args = pybind.parse_signature(signature)
+    assert 'arg0' in args and args['arg0'] == 'int'
+    assert 'arg1' in args and args['arg1'] == 'int'
+

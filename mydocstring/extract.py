@@ -51,15 +51,26 @@ class Extract(object):
 
         Arguments:
             filename: A string that that specifies the file to extract
-                docstrings from.
+                docstrings from. If this is not a valid file, then it will be
+                treated as text.
 
         """
-        self.txt = open(filename).read()
-        self.filename = filename
+        try:
+            self.txt = open(filename).read()
+            self.filename = filename
+        except:
+            self.txt = filename
+            self.filename = ''
         self.query = ''
         self.classname = ''
         self.funcname = ''
         self.dtype = ''
+        # This dictionary contains the ids of the different attributes that can
+        # be captured. The value specifies the order in which attribute is
+        # captured.
+        self.ids = {'class' : 0, 'function' : 1, 'signature' : 2,
+                'indent' : 3, 'docstring' : 4, 'body' : 5, 'return_type' : 100}
+        self.function_keyword = 'def '
 
 
     def extract(self, query):
@@ -126,7 +137,7 @@ class Extract(object):
         """
         pass
 
-    def find(self, pattern):
+    def find(self, pattern, ids=None):
         """
         Performs a search for a docstring that matches a specific pattern.
 
@@ -153,14 +164,21 @@ class Extract(object):
             raise NameError(r'Unable to extract docstring for `%s`' % self.query)
         else:
 
-            cls = matches[0][0]
-            function = matches[0][1]
-            signature = matches[0][2]
-            indent = len(matches[0][3])
-            docstring = remove_indent(matches[0][4], indent)
+            if not ids:
+                ids = self.ids
+
+            cls = get_match(matches[0], ids['class'])
+            function = get_match(matches[0], ids['function'])
+            signature = get_match(matches[0], ids['signature'])
+            indent = len(get_match(matches[0], ids['indent']))
+            return_type = get_match(matches[0], ids['return_type'])
+            docstring = remove_indent(get_match(matches[0], ids['docstring']),
+                                      indent)
             if self.dtype == 'function' or self.dtype == 'method': 
-                source = textwrap.dedent('def ' + function + signature + ':\n' +
-                                         matches[0][5]) 
+                source = textwrap.dedent(self.function_keyword + function +
+                                         signature + ':' + return_type + '\n'
+                                         +
+                                         get_match(matches[0], ids['body'])) 
             else: 
                 source = ''
 
@@ -169,6 +187,7 @@ class Extract(object):
             out['function'] = function
             out['signature'] = signature
             out['docstring'] = docstring
+            out['return_type'] = return_type
             out['source'] = source
             out['type'] = self.dtype
             out['label'] = self.query
@@ -200,6 +219,43 @@ class PyExtract(Extract):
     def extract_module(self):
         pattern = r'()()()()^"""([\w\W]*?)"""'
         return self.find(pattern)
+
+class PyBindExtract(PyExtract):
+    """
+    Extract function header, signature, and documentation from PyBind-generated
+    docstrings.
+    """
+
+    def __init__(self, query):
+        PyExtract.__init__(self, query)
+        self.function_keyword = ""
+
+    def extract_function(self):
+        pattern = (r'^\s*(%s)(\((?!self).*\))' % self.funcname
+                 +  r'\s*(?:-> (\w+))*\n+(\s+)\n*((?:\4.*\n+)+)')
+        ids = {'class' : 100, 'function' : 0, 'signature' : 1,
+                'return_type' : 2,
+                'indent' : 3, 'docstring' : 4, 'body' : 5}
+        return self.find(pattern, ids)
+
+    def parse_signature(self, args):
+        """
+        Parse the signature e.g., `(int: a, int: b)` and put into a dict {'a' :
+        'int', 'b' : int}
+        """
+
+        # Remove () 
+        substr = args[1:-1]
+        substr = substr.split(',')
+        args_out = {}
+        for si in substr:
+            name, type_ = si.split(':')
+            name = name.strip()
+            args_out[name] = type_.strip()
+        return args_out
+
+    
+
 
 
 def extract(filestr, query):
@@ -276,4 +332,15 @@ def remove_indent(txt, indent):
     else:
         header = ''
     return '\n'.join([header] + [line[indent:] for line in lines[1:]])
+
+def get_match(match, index, default=''):
+    """
+    Returns a value from match list for a given index. In the list is out of
+    bounds `default` is returned.
+
+    """
+    if index >= len(match):
+        return default
+    else:
+        return match[index]
 
